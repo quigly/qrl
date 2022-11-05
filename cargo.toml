@@ -1,0 +1,15 @@
+[package]
+name = "qrl"
+authors = [ "Quigly", "Chloe" ]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/quigly/qrl"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+qpl = { path = "../qpl/" }
+qmu = { paths = "../qmu" }
+libc = "0.2.134"
+gl = "0.14.0"
+ash = "0.37.0+1.3.209"
