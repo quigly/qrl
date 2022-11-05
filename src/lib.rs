@@ -133,10 +133,12 @@ pub struct PhysicalDeviceProperties
 
 pub trait AbstractInstance
 {
+    fn as_any(&self) -> &dyn Any;
     fn create_surface(&self, window: &qpl::Window) -> Result<Surface, ()>;
     fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>;
     fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>;
     fn create_logical_device(&self, physical_device: &PhysicalDevice) -> Result<Device, ()>;
+    fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>;
 }
 
 pub trait AbstractPhysicalDevice
@@ -156,6 +158,21 @@ pub trait AbstractQueue
 }
 
 pub trait AbstractSurface
+{
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub trait AbstractSwapchain
+{
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub trait AbstractImage
+{
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub trait AbstractImageView
 {
     fn as_any(&self) -> &dyn Any;
 }
@@ -195,6 +212,8 @@ impl Instance
         }
     }
 
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
+
     pub fn create_surface(&self, window: &qpl::Window) -> Result<Surface, ()>
     {
         self.internal.create_surface(window)
@@ -219,6 +238,11 @@ impl Instance
     pub fn create_logical_device(&self, physical_device: &PhysicalDevice) -> Result<Device, ()>
     {
         self.internal.create_logical_device(physical_device)
+    }
+
+    pub fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
+    {
+        self.internal.create_swapchain(physical_device, device, surface)
     }
 }
 
@@ -257,11 +281,37 @@ pub struct Queue
 
 impl Queue
 {
-    
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
 }
 
 #[derive(Clone)]
 pub struct Surface
 {
     internal: Rc<dyn AbstractSurface>
+}
+
+impl Surface
+{
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
+}
+
+#[derive(Clone)]
+pub struct Swapchain
+{
+    internal: Rc<dyn AbstractSwapchain>
+}
+
+impl Swapchain
+{
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
+}
+
+pub struct Image
+{
+    internal: Rc<dyn AbstractImage>
+}
+
+pub struct ImageView
+{
+    internal: Rc<dyn AbstractImageView>
 }
