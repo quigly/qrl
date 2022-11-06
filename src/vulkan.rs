@@ -13,7 +13,7 @@ pub struct VkInstance
     pub handle: ash::Instance,
     pub entry: ash::Entry,
     pub debug_utils: ash::extensions::ext::DebugUtils,
-    pub utils_messenger: vk::DebugUtilsMessengerEXT
+    pub utils_messenger: vk::DebugUtilsMessengerEXT,
 }
 
 impl VkInstance
@@ -70,6 +70,8 @@ impl VkInstance
         let utils_messenger =
         unsafe { debug_utils.create_debug_utils_messenger(&debugcreateinfo, None).unwrap() };
 
+        
+
         println!("Created vulkan instance!");
 
         Ok(Self
@@ -80,6 +82,27 @@ impl VkInstance
             utils_messenger
         })
     }
+
+	fn select_physical_device(&self) -> Result<VkPhysicalDevice, ()>
+	{
+		let handles = unsafe { self.handle.enumerate_physical_devices() }.unwrap();
+
+		let chosen_device: Option<VkPhysicalDevice> = None;
+
+		for handle in &handles
+		{
+			let physical_device = VkPhysicalDevice::new(*handle, &self.handle);
+
+			chosen_device = Some(physical_device);
+			break;
+		}
+
+		match chosen_device
+		{
+			Some(physical_device) => { Ok(physical_device) },
+			None => { Err(()) }
+		}
+	}
 }
 
 impl AbstractInstance for VkInstance
@@ -94,20 +117,20 @@ impl AbstractInstance for VkInstance
         Ok(Surface { internal: Rc::new(VkSurface { handle, loader }) })
     }
 
-    fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>
+    /*fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>
     {
         let mut physical_devices: Vec<PhysicalDevice> = Vec::new();
 
         for handle in unsafe { self.handle.enumerate_physical_devices() }.unwrap().iter()
         {
-            let internal: Rc<dyn AbstractPhysicalDevice> = Rc::new(VkPhysicalDevice { handle: *handle });
+            let internal: Rc<dyn AbstractPhysicalDevice> = Rc::new(VkPhysicalDevice::new(*handle, &self.handle));
             physical_devices.push(PhysicalDevice { internal });
         }
 
         Ok(physical_devices)
-    }
+    }*/
 
-    fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>
+    /*fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>
     {
         let vk_physical_device = physical_device.downcast_ref::<VkPhysicalDevice>().unwrap();
         let vk_properties = unsafe { self.handle.get_physical_device_properties(vk_physical_device.handle) };
@@ -126,13 +149,13 @@ impl AbstractInstance for VkInstance
             },
             device_name: unsafe { std::ffi::CStr::from_ptr(vk_properties.device_name.as_ptr()) }.to_str().unwrap().to_owned()
         })
-    }
+    }*/
 
-    fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>
+    fn create_device(&self, surface: &Surface) -> Result<Device, ()>
     {
-        let vk_physical_device = physical_device.downcast_ref::<VkPhysicalDevice>().unwrap();
-        let vk_surface = surface.downcast_ref::<VkSurface>().unwrap();
-        let queue_family_properties = unsafe { self.handle.get_physical_device_queue_family_properties(vk_physical_device.handle) };
+        let physical_device = self.select_physical_device().unwrap();
+        let surface = surface.downcast_ref::<VkSurface>().unwrap();
+        let queue_family_properties = unsafe { self.handle.get_physical_device_queue_family_properties(physical_device.handle) };
 
         let queue_family_index: u32 =
         {
@@ -140,7 +163,7 @@ impl AbstractInstance for VkInstance
 
             for (index, queue_family) in queue_family_properties.iter().enumerate()
             {
-                let mut present_support: bool = unsafe { vk_surface.loader.get_physical_device_surface_support(vk_physical_device.handle, index as _, vk_surface.handle) }.unwrap();
+                let mut present_support: bool = unsafe { surface.loader.get_physical_device_surface_support(physical_device.handle, index as _, surface.handle) }.unwrap();
 
                 if queue_family.queue_count > 0 &&
                     queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) &&
@@ -174,24 +197,23 @@ impl AbstractInstance for VkInstance
             .queue_create_infos(&queue_infos)
             .enabled_extension_names(&device_extension_name_pointers)
             .enabled_layer_names(&layer_name_pointers);
-        let handle = unsafe { self.handle.create_device(vk_physical_device.handle, &device_create_info, None).unwrap() };
+        let handle = unsafe { self.handle.create_device(physical_device.handle, &device_create_info, None).unwrap() };
 
-        Ok(Device { internal: Box::new(VkDevice { handle, queue_family_index }) })
+        Ok(Device { internal: Box::new(VkDevice { handle, queue_family_index, physical_device }) })
     }
 
-    fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
+    fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
     {
-        let vk_physical_device: &VkPhysicalDevice = physical_device.downcast_ref::<VkPhysicalDevice>().unwrap();
-        let vk_device: &VkDevice = device.downcast_ref::<VkDevice>().unwrap();
-        let vk_surface: &VkSurface = surface.downcast_ref::<VkSurface>().unwrap();
+        let device: &VkDevice = device.downcast_ref::<VkDevice>().unwrap();
+        let surface: &VkSurface = surface.downcast_ref::<VkSurface>().unwrap();
 
-        let surface_capabilities = unsafe { vk_surface.loader.get_physical_device_surface_capabilities(vk_physical_device.handle, vk_surface.handle) }.unwrap();
-        let surface_present_modes = unsafe { vk_surface.loader.get_physical_device_surface_present_modes(vk_physical_device.handle, vk_surface.handle) }.unwrap();
-        let surface_formats = unsafe { vk_surface.loader.get_physical_device_surface_formats(vk_physical_device.handle, vk_surface.handle) }.unwrap();
+        let surface_capabilities = unsafe { surface.loader.get_physical_device_surface_capabilities(device.physical_device.handle, surface.handle) }.unwrap();
+        let surface_present_modes = unsafe { surface.loader.get_physical_device_surface_present_modes(device.physical_device.handle, surface.handle) }.unwrap();
+        let surface_formats = unsafe { surface.loader.get_physical_device_surface_formats(device.physical_device.handle, surface.handle) }.unwrap();
 
-        let queue_families = [ vk_device.queue_family_index ];
+        let queue_families = [ device.queue_family_index ];
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(vk_surface.handle)
+            .surface(surface.handle)
             .min_image_count(
                 3.max(surface_capabilities.min_image_count)
                     .min(surface_capabilities.max_image_count)
@@ -206,7 +228,7 @@ impl AbstractInstance for VkInstance
             .pre_transform(surface_capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(vk::PresentModeKHR::FIFO);
-        let loader = ash::extensions::khr::Swapchain::new(&self.handle, &vk_device.handle);
+        let loader = ash::extensions::khr::Swapchain::new(&self.handle, &device.handle);
         let handle = unsafe { loader.create_swapchain(&swapchain_create_info, None).unwrap() };
 
         let swapchain_images = unsafe { loader.get_swapchain_images(handle).unwrap() };
@@ -230,18 +252,21 @@ impl AbstractInstance for VkInstance
                 .format(vk::Format::B8G8R8A8_UNORM)
                 .subresource_range(*subresource_range);
             
-            views.push(VkImageView { handle: unsafe { vk_device.handle.create_image_view(&imageview_create_info, None) }.unwrap() });
+            views.push(VkImageView { handle: unsafe { device.handle.create_image_view(&imageview_create_info, None) }.unwrap() });
         }
 
         Ok(Swapchain { internal: Rc::new(VkSwapchain { handle, loader, images, views }) })
     }
+
+
 }
 
 #[derive(Clone)]
 pub struct VkDevice
 {
     pub handle: ash::Device,
-    pub queue_family_index: u32
+    pub queue_family_index: u32,
+	pub physical_device: VkPhysicalDevice
 }
 
 impl AbstractDevice for VkDevice
@@ -254,27 +279,91 @@ impl AbstractDevice for VkDevice
         Ok(Queue { internal: Rc::new(VkQueue { handle }) })
     }
 
-    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>
+	fn get_physical_device_properties(&self) -> Result<PhysicalDeviceProperties, ()>
+	{
+		Ok(PhysicalDeviceProperties
+		{
+			vendor_id: self.physical_device.properties.vendor_id,
+			device_id: self.physical_device.properties.device_id,
+			device_type: match self.physical_device.properties.device_type
+			{
+				vk::PhysicalDeviceType::CPU => DeviceType::CPU,
+				vk::PhysicalDeviceType::DISCRETE_GPU => DeviceType::DiscreteGPU,
+				vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceType::IntegratedGPU,
+				vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceType::VirtualGPU,
+				_ => DeviceType::Other
+			},
+			device_name: unsafe { std::ffi::CStr::from_ptr(self.physical_device.properties.device_name.as_ptr()) }.to_str().unwrap().to_owned()
+		})
+	}
+
+    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ShaderModuleError>
     {
-        todo!()
+        let code: Vec<u32> = match &create_info.source
+        {
+            ShaderModuleSource::Spirv(code) =>
+            {
+                code.clone()
+            },
+            _ => { panic!() }
+        };
+
+        let handle = unsafe { self.handle.create_shader_module(&ash::vk::ShaderModuleCreateInfo::builder()
+            .code(&code)
+            .build(), None) }.unwrap();
+
+        Ok(ShaderModule { internal: Rc::new(VkShaderModule { handle, stage: create_info.stage }) })
     }
 }
 
 #[derive(Clone)]
 pub struct VkPhysicalDevice
 {
-    pub handle: ash::vk::PhysicalDevice
+    pub handle: ash::vk::PhysicalDevice,
+    pub supported_features: vk::PhysicalDeviceFeatures,
+    pub properties: vk::PhysicalDeviceProperties,
+    pub memory_properties: vk::PhysicalDeviceMemoryProperties,
+    pub queue_family_properties: Vec<vk::QueueFamilyProperties>,
 }
 
 impl VkPhysicalDevice
 {
-    
+    pub fn new(handle: vk::PhysicalDevice, instance: &ash::Instance) -> Self
+    {
+        let supported_features = unsafe { instance.get_physical_device_features(handle) };
+        let properties = unsafe { instance.get_physical_device_properties(handle) };
+        let memory_properties = unsafe { instance.get_physical_device_memory_properties(handle) };
+        let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(handle) };
+
+        Self
+        {
+            handle, supported_features, properties, memory_properties, queue_family_properties
+        }
+    }
 }
 
-impl AbstractPhysicalDevice for VkPhysicalDevice
+/*impl AbstractPhysicalDevice for VkPhysicalDevice
 {
     fn as_any(&self) -> &dyn Any { self }
-}
+
+    fn get_properties(&self) -> Result<PhysicalDeviceProperties, ()>
+    {
+        Ok(PhysicalDeviceProperties
+        {
+            vendor_id: self.properties.vendor_id,
+            device_id: self.properties.device_id,
+            device_type: match self.properties.device_type
+            {
+                vk::PhysicalDeviceType::CPU => DeviceType::CPU,
+                vk::PhysicalDeviceType::DISCRETE_GPU => DeviceType::DiscreteGPU,
+                vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceType::IntegratedGPU,
+                vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceType::VirtualGPU,
+                _ => DeviceType::Other
+            },
+            device_name: unsafe { std::ffi::CStr::from_ptr(self.properties.device_name.as_ptr()) }.to_str().unwrap().to_owned()
+        })
+    }
+}*/
 
 #[derive(Clone)]
 pub struct VkQueue
@@ -338,7 +427,8 @@ impl AbstractSwapchain for VkSwapchain
 #[derive(Clone)]
 pub struct VkShaderModule
 {
-    pub handle: vk::ShaderModule
+    pub handle: vk::ShaderModule,
+    pub stage: ShaderStage
 }
 
 impl AbstractShaderModule for VkShaderModule

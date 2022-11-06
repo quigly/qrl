@@ -1,6 +1,6 @@
 use crate::*;
 
-pub struct GlInstance
+/*pub struct GlInstance
 {
     handle: qpl::GLContext
 }
@@ -102,9 +102,30 @@ impl AbstractDevice for GlDevice
         Ok(Queue { internal: Rc::new(GlQueue {  }) })
     }
     
-    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>
+    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ShaderModuleError>
     {
-        todo!()
+        let ShaderModuleSource::Glsl(source) = create_info.source.clone() else { panic!() };
+
+        let handle = unsafe { gl::CreateShader(match create_info.stage
+        {
+            ShaderStage::Vertex => gl::VERTEX_SHADER,
+            ShaderStage::Fragment => gl::FRAGMENT_SHADER,
+            ShaderStage::Geometry => gl::GEOMETRY_SHADER
+        }) };
+
+        unsafe
+        {
+            let source_cstr = std::ffi::CString::new(source).unwrap();
+            gl::ShaderSource(handle, 1, &source_cstr.as_ptr() as _, std::ptr::null());
+
+            gl::CompileShader(handle);
+            if check_shader_error(handle, gl::COMPILE_STATUS, false, "Error compiling shader")
+            {
+                return Err(ShaderModuleError::CompilationFailed);
+            }
+        }
+
+        Ok(ShaderModule { internal: Rc::new(GlShaderModule { handle, stage: create_info.stage }) })
     }
 }
 
@@ -127,3 +148,49 @@ impl AbstractSwapchain for GlSwapchain
 {
     fn as_any(&self) -> &dyn Any { self }
 }
+
+pub struct GlShaderModule
+{
+    handle: u32,
+    stage: ShaderStage
+}
+
+impl AbstractShaderModule for GlShaderModule
+{
+    fn as_any(&self) -> &dyn Any { self }
+}
+
+
+
+unsafe fn check_shader_error(shader: u32, flag: u32, is_program: bool, error_message: &str) -> bool
+{
+    let mut success: i32 = 0;
+    let mut error: [i8; 1024] = [0; 1024];
+
+    if is_program
+    {
+        gl::GetProgramiv(shader, flag, &mut success);
+    }
+    else
+    {
+        gl::GetShaderiv(shader, flag, &mut success);
+    }
+
+    if success == gl::FALSE as i32
+    {
+        if is_program
+        {
+            gl::GetProgramInfoLog(shader, 1024, 0 as *mut i32, error.as_mut_ptr());
+        }
+        else
+        {
+            gl::GetShaderInfoLog(shader, 1024, 0 as *mut i32, error.as_mut_ptr());
+        }
+
+        println!("[SHADER] {}: {}", error_message, unsafe { std::ffi::CStr::from_ptr(error.as_ptr()) }.to_str().unwrap());
+
+        return true;
+    }
+
+    false
+}*/

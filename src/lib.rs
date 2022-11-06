@@ -70,6 +70,13 @@ pub enum StoreOp
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Operations
+{
+    pub load_op: LoadOp,
+    pub store_op: StoreOp
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PolygonMode
 {
     Fill,
@@ -146,26 +153,96 @@ pub struct ShaderModuleCreateInfo
     pub source: ShaderModuleSource
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ImageLayout
+{
+    General,
+    ColorAttachmentOptimal,
+    DepthStencilAttachmentOptimal,
+    StencilStencilReadOnlyOptimal,
+    ShaderReadOnlyOptimal,
+    TransferSrcOptimal,
+    TransferDstOptimal,
+    Preinitialized,
+    PresentSrc
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Format
+{
+    Undefined,
+
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct AttachmentDescription
+{
+    pub format: u32, // TODO(quigly): change this to enum!
+    pub samples: u32,
+    pub operations: Operations,
+    pub stencil_operations: Operations,
+    pub initial_layout: Option<ImageLayout>,
+    pub final_layout: ImageLayout
+}
+
+mod PipelineStageFlags
+{
+    const TOP_OF_PIPE:                    u32 = 0b00000001;
+    const DRAW_INDIRECT:                  u32 = 0b00000010;
+    const VERTEX_INPUT:                   u32 = 0b00000011;
+    const VERTEX_SHADER:                  u32 = 0b00000100;
+    const TESSELLATION_CONTROL_SHADER:    u32 = 0b00000101;
+    const TESSELLATION_EVALUATION_SHADER: u32 = 0b00000110;
+    const GEOMETRY_SHADER:                u32 = 0b00000111;
+    const FRAGMENT_SHADER:                u32 = 0b00001000;
+    const EARLY_FRAGMENT_TESTS:           u32 = 0b00001001;
+    const LATE_FRAGMENT_TESTS:            u32 = 0b00001010;
+    const COLOR_ATTACHMENT_OUTPUT:        u32 = 0b00001011;
+    const COMPUTE_SHADER:                 u32 = 0b00001100;
+    const TRANSFER_BIT:                   u32 = 0b00001101;
+    const BOTTOM_OF_PIPE:                 u32 = 0b00001110;
+    const HOST:                           u32 = 0b00001111;
+    const ALL_GRAPHICS:                   u32 = 0b00010000;
+    const ALL_COMMANDS:                   u32 = 0b00010001;
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct SubpassDependency
+{
+    pub src_subpass: u32,
+    pub dst_subpass: u32,
+    pub src_stage_mask: u32,
+    pub dst_stage_mask: u32,
+    pub src_access_mask: u32,
+    pub dst_access_mask: u32
+}
+
+pub struct RenderPassCreateInfo
+{
+    //pub attachments: Vec<AttachmentDescription>,
+    //pub subpasses: Vec<TODO>
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ShaderModuleError
+{
+    CompilationFailed,
+}
+
 pub trait AbstractInstance
 {
     fn as_any(&self) -> &dyn Any;
     fn create_surface(&self, window: &qpl::Window) -> Result<Surface, ()>;
-    fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>;
-    fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>;
-    fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>;
-    fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>;
-}
-
-pub trait AbstractPhysicalDevice
-{
-    fn as_any(&self) -> &dyn Any;
+    fn create_device(&self, surface: &Surface) -> Result<Device, ()>;
+    fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>;
 }
 
 pub trait AbstractDevice
 {
     fn as_any(&self) -> &dyn Any;
     fn get_device_queue(&self) -> Result<Queue, ()>;
-    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>;
+    fn get_physical_device_properties(&self) -> Result<PhysicalDeviceProperties, ()>;
+    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ShaderModuleError>;
 }
 
 pub trait AbstractQueue
@@ -229,7 +306,7 @@ impl Instance
                 }
                 
             },
-            API::OpenGL =>
+            /*API::OpenGL =>
             {
                 match opengl::GlInstance::new(api, window)
                 {
@@ -246,7 +323,7 @@ impl Instance
                         Err(err)
                     }
                 }
-            },
+            },*/
             _ => { todo!() }
         }
     }
@@ -258,42 +335,15 @@ impl Instance
         self.internal.create_surface(window)
     }
 
-    pub fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>
+    pub fn create_device(&self, surface: &Surface) -> Result<Device, ()>
     {
-        self.internal.enumerate_physical_devices()
+        self.internal.create_device(surface)
     }
 
-    pub fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>
+    pub fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
     {
-        self.internal.get_physical_device_properties(physical_device)
+        self.internal.create_swapchain(device, surface)
     }
-
-    pub fn select_physical_device(&self) -> Result<PhysicalDevice, ()>
-    {
-        let devices = self.internal.enumerate_physical_devices().unwrap();
-        Ok(devices[0].clone())
-    }
-
-    pub fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>
-    {
-        self.internal.create_logical_device(physical_device, surface)
-    }
-
-    pub fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
-    {
-        self.internal.create_swapchain(physical_device, device, surface)
-    }
-}
-
-#[derive(Clone)]
-pub struct PhysicalDevice
-{
-    internal: Rc<dyn AbstractPhysicalDevice>
-}
-
-impl PhysicalDevice
-{
-    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
 }
 
 pub struct Device
@@ -310,7 +360,7 @@ impl Device
         self.internal.get_device_queue()
     }
 
-    pub fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>
+    pub fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ShaderModuleError>
     {
         self.internal.create_shader_module(create_info)
     }
