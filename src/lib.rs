@@ -171,7 +171,14 @@ pub enum ImageLayout
 pub enum Format
 {
     Undefined,
-
+    R8Unorm,
+    R8Snorm,
+    R8Uint,
+    R8Sint,
+    R16Uint,
+    R16Sint,
+    R16Unorm,
+    R16Snorm
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -229,12 +236,18 @@ pub enum ShaderModuleError
     CompilationFailed,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct SwapchainCreateInfo
+{
+    pub present_mode: PresentMode
+}
+
 pub trait AbstractInstance
 {
     fn as_any(&self) -> &dyn Any;
     fn create_surface(&self, window: &qpl::Window) -> Result<Surface, ()>;
     fn create_device(&self, surface: &Surface) -> Result<Device, ()>;
-    fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>;
+    fn create_swapchain(&self, device: &Device, surface: &Surface, create_info: &SwapchainCreateInfo) -> Result<Swapchain, ()>;
 }
 
 pub trait AbstractDevice
@@ -340,9 +353,9 @@ impl Instance
         self.internal.create_device(surface)
     }
 
-    pub fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
+    pub fn create_swapchain(&self, device: &Device, surface: &Surface, create_info: &SwapchainCreateInfo) -> Result<Swapchain, ()>
     {
-        self.internal.create_swapchain(device, surface)
+        self.internal.create_swapchain(device, surface, create_info)
     }
 }
 
@@ -358,6 +371,11 @@ impl Device
     pub fn get_device_queue(&self) -> Result<Queue, ()>
     {
         self.internal.get_device_queue()
+    }
+
+    pub fn get_physical_device_properties(&self) -> Result<PhysicalDeviceProperties, ()>
+    {
+        self.internal.get_physical_device_properties()
     }
 
     pub fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ShaderModuleError>

@@ -7,6 +7,13 @@ use ash::vk;
 
 use super::*;
 
+struct SwapchainSupportInfo
+{
+	capabilities: vk::SurfaceCapabilitiesKHR,
+	formats: Vec<vk::SurfaceFormatKHR>,
+	modes: Vec<vk::PresentModeKHR>
+}
+
 #[derive(Clone)]
 pub struct VkInstance
 {
@@ -70,8 +77,6 @@ impl VkInstance
         let utils_messenger =
         unsafe { debug_utils.create_debug_utils_messenger(&debugcreateinfo, None).unwrap() };
 
-        
-
         println!("Created vulkan instance!");
 
         Ok(Self
@@ -87,7 +92,7 @@ impl VkInstance
 	{
 		let handles = unsafe { self.handle.enumerate_physical_devices() }.unwrap();
 
-		let chosen_device: Option<VkPhysicalDevice> = None;
+		let mut chosen_device: Option<VkPhysicalDevice> = None;
 
 		for handle in &handles
 		{
@@ -116,40 +121,6 @@ impl AbstractInstance for VkInstance
 
         Ok(Surface { internal: Rc::new(VkSurface { handle, loader }) })
     }
-
-    /*fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>
-    {
-        let mut physical_devices: Vec<PhysicalDevice> = Vec::new();
-
-        for handle in unsafe { self.handle.enumerate_physical_devices() }.unwrap().iter()
-        {
-            let internal: Rc<dyn AbstractPhysicalDevice> = Rc::new(VkPhysicalDevice::new(*handle, &self.handle));
-            physical_devices.push(PhysicalDevice { internal });
-        }
-
-        Ok(physical_devices)
-    }*/
-
-    /*fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>
-    {
-        let vk_physical_device = physical_device.downcast_ref::<VkPhysicalDevice>().unwrap();
-        let vk_properties = unsafe { self.handle.get_physical_device_properties(vk_physical_device.handle) };
-
-        Ok(PhysicalDeviceProperties
-        {
-            vendor_id: vk_properties.vendor_id,
-            device_id: vk_properties.device_id,
-            device_type: match vk_properties.device_type
-            {
-                vk::PhysicalDeviceType::CPU => DeviceType::CPU,
-                vk::PhysicalDeviceType::DISCRETE_GPU => DeviceType::DiscreteGPU,
-                vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceType::IntegratedGPU,
-                vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceType::VirtualGPU,
-                _ => DeviceType::Other
-            },
-            device_name: unsafe { std::ffi::CStr::from_ptr(vk_properties.device_name.as_ptr()) }.to_str().unwrap().to_owned()
-        })
-    }*/
 
     fn create_device(&self, surface: &Surface) -> Result<Device, ()>
     {
@@ -199,17 +170,19 @@ impl AbstractInstance for VkInstance
             .enabled_layer_names(&layer_name_pointers);
         let handle = unsafe { self.handle.create_device(physical_device.handle, &device_create_info, None).unwrap() };
 
-        Ok(Device { internal: Box::new(VkDevice { handle, queue_family_index, physical_device }) })
+        Ok(Device { internal: Box::new(VkDevice { handle, instance: self.handle, queue_family_index, physical_device }) })
     }
 
-    fn create_swapchain(&self, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
+    fn create_swapchain(&self, device: &Device, surface: &Surface, create_info: &SwapchainCreateInfo) -> Result<Swapchain, ()>
     {
         let device: &VkDevice = device.downcast_ref::<VkDevice>().unwrap();
         let surface: &VkSurface = surface.downcast_ref::<VkSurface>().unwrap();
 
-        let surface_capabilities = unsafe { surface.loader.get_physical_device_surface_capabilities(device.physical_device.handle, surface.handle) }.unwrap();
-        let surface_present_modes = unsafe { surface.loader.get_physical_device_surface_present_modes(device.physical_device.handle, surface.handle) }.unwrap();
-        let surface_formats = unsafe { surface.loader.get_physical_device_surface_formats(device.physical_device.handle, surface.handle) }.unwrap();
+		let swapchain_info = device.get_swapchain_support_info(surface);
+
+        let surface_capabilities = choose_swap_surface_format(&swapchain_info.formats);
+        let surface_present_modes = choose_swap_present_mode(&swapchain_info.modes, create_info.present_mode);
+        let surface_formats = choose_swap_surface_format(&swapchain_info.formats);
 
         let queue_families = [ device.queue_family_index ];
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
@@ -265,8 +238,32 @@ impl AbstractInstance for VkInstance
 pub struct VkDevice
 {
     pub handle: ash::Device,
+	pub instance: ash::Instance,
     pub queue_family_index: u32,
 	pub physical_device: VkPhysicalDevice
+}
+
+impl VkDevice
+{
+	fn get_swapchain_support_info(&self, surface: &VkSurface) -> SwapchainSupportInfo
+	{
+		let capabilities: vk::SurfaceCapabilitiesKHR = unsafe
+		{
+			surface.loader.get_physical_device_surface_capabilities(self.physical_device.handle, surface.handle)
+		}.unwrap();
+
+		let formats: Vec<vk::SurfaceFormatKHR> = unsafe
+		{
+			surface.loader.get_physical_device_surface_formats(self.physical_device.handle, surface.handle)
+		}.unwrap();
+
+		let modes: Vec<vk::PresentModeKHR> = unsafe
+		{
+			surface.loader.get_physical_device_surface_present_modes(self.physical_device.handle, surface.handle)
+		}.unwrap();
+
+		SwapchainSupportInfo { capabilities, formats, modes }
+	}
 }
 
 impl AbstractDevice for VkDevice
@@ -341,29 +338,6 @@ impl VkPhysicalDevice
         }
     }
 }
-
-/*impl AbstractPhysicalDevice for VkPhysicalDevice
-{
-    fn as_any(&self) -> &dyn Any { self }
-
-    fn get_properties(&self) -> Result<PhysicalDeviceProperties, ()>
-    {
-        Ok(PhysicalDeviceProperties
-        {
-            vendor_id: self.properties.vendor_id,
-            device_id: self.properties.device_id,
-            device_type: match self.properties.device_type
-            {
-                vk::PhysicalDeviceType::CPU => DeviceType::CPU,
-                vk::PhysicalDeviceType::DISCRETE_GPU => DeviceType::DiscreteGPU,
-                vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceType::IntegratedGPU,
-                vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceType::VirtualGPU,
-                _ => DeviceType::Other
-            },
-            device_name: unsafe { std::ffi::CStr::from_ptr(self.properties.device_name.as_ptr()) }.to_str().unwrap().to_owned()
-        })
-    }
-}*/
 
 #[derive(Clone)]
 pub struct VkQueue
@@ -470,4 +444,58 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
     let ty = format!("{:?}", message_type).to_lowercase();
     println!("[Debug][{}][{}] {:?}", severity, ty, message);
     vk::FALSE
+}
+
+fn choose_swap_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR
+{
+	for format in formats
+	{
+		if format.format == vk::Format::B8G8R8A8_SRGB &&
+			format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+		{
+			return *format;
+		}
+	}
+
+	formats[0]
+}
+
+fn choose_swap_present_mode(modes: &[vk::PresentModeKHR], preferred_mode: PresentMode) -> vk::PresentModeKHR
+{
+	for mode in modes
+	{
+		if *mode == vk::PresentModeKHR::MAILBOX && preferred_mode == PresentMode::Mailbox
+		{
+			return *mode;
+		}
+		else if *mode == vk::PresentModeKHR::FIFO && preferred_mode == PresentMode::Fifo
+		{
+			return *mode;
+		}
+		else if *mode == vk::PresentModeKHR::FIFO_RELAXED && preferred_mode == PresentMode::FifoRelaxed
+		{
+			return *mode;
+		}
+		else if *mode == vk::PresentModeKHR::IMMEDIATE && preferred_mode == PresentMode::Immediate
+		{
+			return *mode;
+		}
+	}
+
+	vk::PresentModeKHR::FIFO
+}
+
+fn choose_swap_extent(window: &qpl::Window, capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::Extent2D
+{
+	if capabilities.current_extent.width != std::u32::MAX
+	{
+		return capabilities.current_extent;
+	}
+
+	let mut actual_extent = vk::Extent2D { width: window.width, height: window.height };
+
+	actual_extent.width = actual_extent.width.clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width);
+	actual_extent.height = actual_extent.height.clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height);
+
+	actual_extent
 }
