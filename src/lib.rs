@@ -4,6 +4,7 @@ mod opengl;
 
 use std::{any::Any, fmt, io::Read, rc::Rc};
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum API
 {
     Software,
@@ -131,13 +132,27 @@ pub struct PhysicalDeviceProperties
     pub device_name: String
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ShaderModuleSource
+{
+    Glsl(String),
+    Spirv(Vec<u32>)
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ShaderModuleCreateInfo
+{
+    pub stage: ShaderStage,
+    pub source: ShaderModuleSource
+}
+
 pub trait AbstractInstance
 {
     fn as_any(&self) -> &dyn Any;
     fn create_surface(&self, window: &qpl::Window) -> Result<Surface, ()>;
     fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>, ()>;
     fn get_physical_device_properties(&self, physical_device: &PhysicalDevice) -> Result<PhysicalDeviceProperties, ()>;
-    fn create_logical_device(&self, physical_device: &PhysicalDevice) -> Result<Device, ()>;
+    fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>;
     fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>;
 }
 
@@ -150,6 +165,7 @@ pub trait AbstractDevice
 {
     fn as_any(&self) -> &dyn Any;
     fn get_device_queue(&self) -> Result<Queue, ()>;
+    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>;
 }
 
 pub trait AbstractQueue
@@ -177,6 +193,11 @@ pub trait AbstractImageView
     fn as_any(&self) -> &dyn Any;
 }
 
+pub trait AbstractShaderModule
+{
+    fn as_any(&self) -> &dyn Any;
+}
+
 pub struct Instance
 {
     api: API,
@@ -185,7 +206,7 @@ pub struct Instance
 
 impl Instance
 {
-    pub fn new(api: API) -> Result<Self, InstanceError>
+    pub fn new(api: API, window: &qpl::Window) -> Result<Self, InstanceError>
     {
         match api
         {
@@ -207,6 +228,24 @@ impl Instance
                     }
                 }
                 
+            },
+            API::OpenGL =>
+            {
+                match opengl::GlInstance::new(api, window)
+                {
+                    Ok(instance) =>
+                    {
+                        Ok(Self
+                        {
+                            api,
+                            internal: Box::new(instance)
+                        })
+                    },
+                    Err(err) =>
+                    {
+                        Err(err)
+                    }
+                }
             },
             _ => { todo!() }
         }
@@ -235,9 +274,9 @@ impl Instance
         Ok(devices[0].clone())
     }
 
-    pub fn create_logical_device(&self, physical_device: &PhysicalDevice) -> Result<Device, ()>
+    pub fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>
     {
-        self.internal.create_logical_device(physical_device)
+        self.internal.create_logical_device(physical_device, surface)
     }
 
     pub fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
@@ -257,10 +296,9 @@ impl PhysicalDevice
     pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
 }
 
-#[derive(Clone)]
 pub struct Device
 {
-    internal: Rc<dyn AbstractDevice>
+    internal: Box<dyn AbstractDevice>
 }
 
 impl Device
@@ -270,6 +308,11 @@ impl Device
     pub fn get_device_queue(&self) -> Result<Queue, ()>
     {
         self.internal.get_device_queue()
+    }
+
+    pub fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>
+    {
+        self.internal.create_shader_module(create_info)
     }
 }
 
@@ -311,7 +354,27 @@ pub struct Image
     internal: Rc<dyn AbstractImage>
 }
 
+impl Image
+{
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
+}
+
 pub struct ImageView
 {
     internal: Rc<dyn AbstractImageView>
+}
+
+impl ImageView
+{
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
+}
+
+pub struct ShaderModule
+{
+    internal: Rc<dyn AbstractShaderModule>
+}
+
+impl ShaderModule
+{
+    pub fn downcast_ref<T>(&self) -> Option<&T> where T: Any { self.internal.as_any().downcast_ref::<T>() }
 }

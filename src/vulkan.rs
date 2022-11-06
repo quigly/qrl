@@ -128,9 +128,10 @@ impl AbstractInstance for VkInstance
         })
     }
 
-    fn create_logical_device(&self, physical_device: &PhysicalDevice) -> Result<Device, ()>
+    fn create_logical_device(&self, physical_device: &PhysicalDevice, surface: &Surface) -> Result<Device, ()>
     {
         let vk_physical_device = physical_device.downcast_ref::<VkPhysicalDevice>().unwrap();
+        let vk_surface = surface.downcast_ref::<VkSurface>().unwrap();
         let queue_family_properties = unsafe { self.handle.get_physical_device_queue_family_properties(vk_physical_device.handle) };
 
         let queue_family_index: u32 =
@@ -139,9 +140,12 @@ impl AbstractInstance for VkInstance
 
             for (index, queue_family) in queue_family_properties.iter().enumerate()
             {
+                let mut present_support: bool = unsafe { vk_surface.loader.get_physical_device_surface_support(vk_physical_device.handle, index as _, vk_surface.handle) }.unwrap();
+
                 if queue_family.queue_count > 0 &&
                     queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) &&
-                    queue_family.queue_flags.contains(vk::QueueFlags::TRANSFER)
+                    queue_family.queue_flags.contains(vk::QueueFlags::TRANSFER) &&
+                    present_support
                 {
                     found_index = Some(index as u32);
                 }
@@ -172,7 +176,7 @@ impl AbstractInstance for VkInstance
             .enabled_layer_names(&layer_name_pointers);
         let handle = unsafe { self.handle.create_device(vk_physical_device.handle, &device_create_info, None).unwrap() };
 
-        Ok(Device { internal: Rc::new(VkDevice { handle, queue_family_index }) })
+        Ok(Device { internal: Box::new(VkDevice { handle, queue_family_index }) })
     }
 
     fn create_swapchain(&self, physical_device: &PhysicalDevice, device: &Device, surface: &Surface) -> Result<Swapchain, ()>
@@ -248,6 +252,11 @@ impl AbstractDevice for VkDevice
     {
         let handle = unsafe { self.handle.get_device_queue(self.queue_family_index, 0) };
         Ok(Queue { internal: Rc::new(VkQueue { handle }) })
+    }
+
+    fn create_shader_module(&self, create_info: &ShaderModuleCreateInfo) -> Result<ShaderModule, ()>
+    {
+        todo!()
     }
 }
 
@@ -332,9 +341,9 @@ pub struct VkShaderModule
     pub handle: vk::ShaderModule
 }
 
-impl VkShaderModule
+impl AbstractShaderModule for VkShaderModule
 {
-    
+    fn as_any(&self) -> &dyn Any { self }
 }
 
 #[derive(Clone)]
