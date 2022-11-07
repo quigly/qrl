@@ -242,6 +242,17 @@ pub struct SwapchainCreateInfo
     pub present_mode: PresentMode
 }
 
+impl Default for SwapchainCreateInfo
+{
+    fn default() -> Self
+    {
+		Self
+		{
+			present_mode: PresentMode::Fifo
+		}
+    }
+}
+
 pub trait AbstractInstance
 {
     fn as_any(&self) -> &dyn Any;

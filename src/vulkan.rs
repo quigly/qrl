@@ -118,8 +118,9 @@ impl AbstractInstance for VkInstance
     {
         let handle = window.vk_create_surface(&self.entry, &self.handle, None);
         let loader = ash::extensions::khr::Surface::new(&self.entry, &self.handle);
+		let extent = vk::Extent2D { width: window.width, height: window.height };
 
-        Ok(Surface { internal: Rc::new(VkSurface { handle, loader }) })
+        Ok(Surface { internal: Rc::new(VkSurface { handle, loader, extent }) })
     }
 
     fn create_device(&self, surface: &Surface) -> Result<Device, ()>
@@ -170,7 +171,7 @@ impl AbstractInstance for VkInstance
             .enabled_layer_names(&layer_name_pointers);
         let handle = unsafe { self.handle.create_device(physical_device.handle, &device_create_info, None).unwrap() };
 
-        Ok(Device { internal: Box::new(VkDevice { handle, instance: self.handle, queue_family_index, physical_device }) })
+        Ok(Device { internal: Box::new(VkDevice { handle, instance: self.handle.clone(), queue_family_index, physical_device }) })
     }
 
     fn create_swapchain(&self, device: &Device, surface: &Surface, create_info: &SwapchainCreateInfo) -> Result<Swapchain, ()>
@@ -180,27 +181,35 @@ impl AbstractInstance for VkInstance
 
 		let swapchain_info = device.get_swapchain_support_info(surface);
 
-        let surface_capabilities = choose_swap_surface_format(&swapchain_info.formats);
-        let surface_present_modes = choose_swap_present_mode(&swapchain_info.modes, create_info.present_mode);
-        let surface_formats = choose_swap_surface_format(&swapchain_info.formats);
+		let surface_format = choose_swap_surface_format(&swapchain_info.formats);
+		let present_mode = choose_swap_present_mode(&swapchain_info.modes, create_info.present_mode);
+        let extent = choose_swap_extent(surface, &swapchain_info.capabilities);
+
+		dbg!(&surface_format);
+		dbg!(&present_mode);
+		dbg!(&extent);
+
+		let mut image_count: u32 = swapchain_info.capabilities.min_image_count + 1;
+		if swapchain_info.capabilities.max_image_count > 0 &&
+			image_count > swapchain_info.capabilities.max_image_count
+		{
+			image_count = swapchain_info.capabilities.max_image_count;
+		}
 
         let queue_families = [ device.queue_family_index ];
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface.handle)
-            .min_image_count(
-                3.max(surface_capabilities.min_image_count)
-                    .min(surface_capabilities.max_image_count)
-            )
-            .image_format(surface_formats.first().unwrap().format)
-            .image_color_space(surface_formats.first().unwrap().color_space)
-            .image_extent(surface_capabilities.current_extent)
+            .min_image_count(image_count)
+            .image_format(surface_format.format)
+            .image_color_space(surface_format.color_space)
+            .image_extent(extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .queue_family_indices(&queue_families)
-            .pre_transform(surface_capabilities.current_transform)
+            .pre_transform(swapchain_info.capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(vk::PresentModeKHR::FIFO);
+            .present_mode(present_mode);
         let loader = ash::extensions::khr::Swapchain::new(&self.handle, &device.handle);
         let handle = unsafe { loader.create_swapchain(&swapchain_create_info, None).unwrap() };
 
@@ -222,7 +231,7 @@ impl AbstractInstance for VkInstance
             let imageview_create_info = vk::ImageViewCreateInfo::builder()
                 .image(*handle)
                 .view_type(vk::ImageViewType::TYPE_2D)
-                .format(vk::Format::B8G8R8A8_UNORM)
+                .format(surface_format.format)
                 .subresource_range(*subresource_range);
             
             views.push(VkImageView { handle: unsafe { device.handle.create_image_view(&imageview_create_info, None) }.unwrap() });
@@ -354,7 +363,8 @@ impl AbstractQueue for VkQueue
 pub struct VkSurface
 {
     pub handle: vk::SurfaceKHR,
-    pub loader: ash::extensions::khr::Surface
+    pub loader: ash::extensions::khr::Surface,
+	pub extent: vk::Extent2D
 }
 
 impl AbstractSurface for VkSurface
@@ -485,14 +495,14 @@ fn choose_swap_present_mode(modes: &[vk::PresentModeKHR], preferred_mode: Presen
 	vk::PresentModeKHR::FIFO
 }
 
-fn choose_swap_extent(window: &qpl::Window, capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::Extent2D
+fn choose_swap_extent(surface: &VkSurface, capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::Extent2D
 {
 	if capabilities.current_extent.width != std::u32::MAX
 	{
 		return capabilities.current_extent;
 	}
 
-	let mut actual_extent = vk::Extent2D { width: window.width, height: window.height };
+	let mut actual_extent = vk::Extent2D { width: surface.extent.width, height: surface.extent.height };
 
 	actual_extent.width = actual_extent.width.clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width);
 	actual_extent.height = actual_extent.height.clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height);
